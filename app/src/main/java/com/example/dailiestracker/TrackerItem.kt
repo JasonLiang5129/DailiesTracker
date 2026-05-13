@@ -5,7 +5,9 @@ data class TrackerItem(
     val title: String,
     var currentAmount: Int,
     val maxAmount: Int,
-    var secondsRemaining: Long
+    val rechargeRateInSeconds: Long,
+    var secondsRemaining: Long = 0L,
+    var currentSecondsProgress: Long = 0L
 ) {
     val progressText: String
         get() = "$currentAmount/$maxAmount"

@@ -51,50 +51,59 @@ class MainActivity : ComponentActivity() {
 
             // --- THE REAL-TIME TIMER LOOP ---
             LaunchedEffect(Unit) {
-                var tenMinuteTicker = 0
-
                 while (true) {
-                    delay(1000L) // Wait exactly 1 second
-                    tenMinuteTicker++
-
-                    // Flag to check if we hit a 10-minute mark (10 mins = 600 seconds)
-                    val shouldIncrementResource = tenMinuteTicker >= 600
-                    if (shouldIncrementResource) {
-                        tenMinuteTicker = 0 // Reset the 10-minute counter
-                    }
-
-                    // Loop through sections and items to update times and amounts
+                    delay(1000L) // Tick exactly every 1 second
                     sectionsState.forEachIndexed { sectionIndex, section ->
 
-                        // Helper function to process a list of items
+                        // Process resources with their own individual rates
                         val updatedResources = section.resourceItems.map { item ->
                             var newAmount = item.currentAmount
-                            var newSeconds = item.secondsRemaining
+                            var newSeconds = (item.maxAmount - item.currentAmount) * item.rechargeRateInSeconds
+                            var newItemProgress = item.currentSecondsProgress
 
-                            // 1. Tick down the clock if not full
-                            if (newAmount < item.maxAmount && newSeconds > 0) {
-                                newSeconds--
+                            // Only tick if the item isn't already maxed out
+                            if (newAmount < item.maxAmount) {
+                                if (newSeconds > 0) newSeconds--
+                                newItemProgress++ // Increment this item's specific internal clock
+
+                                // Check if this item has reached its own custom resource interval
+                                if (newItemProgress >= item.rechargeRateInSeconds) {
+                                    newAmount++
+                                    newItemProgress = 0L // Reset this item's specific counter
+                                }
                             }
 
-                            // 2. Increment resource every 10 minutes if not full
-                            if (shouldIncrementResource && newAmount < item.maxAmount) {
-                                newAmount++
-                            }
-
-                            // Return a freshly updated copy of the item
-                            item.copy(currentAmount = newAmount, secondsRemaining = newSeconds)
+                            item.copy(
+                                currentAmount = newAmount,
+                                secondsRemaining = newSeconds,
+                                currentSecondsProgress = newItemProgress
+                            )
                         }
 
-                        // Apply the exact same logic to otherItems if they track time too
+                        // Process other items with the exact same personalized rate logic
                         val updatedOtherItems = section.otherItems.map { item ->
                             var newAmount = item.currentAmount
                             var newSeconds = item.secondsRemaining
-                            if (newAmount < item.maxAmount && newSeconds > 0) newSeconds--
-                            if (shouldIncrementResource && newAmount < item.maxAmount) newAmount++
-                            item.copy(currentAmount = newAmount, secondsRemaining = newSeconds)
+                            var newItemProgress = item.currentSecondsProgress
+
+                            if (newAmount < item.maxAmount) {
+                                if (newSeconds > 0) newSeconds--
+                                newItemProgress++
+
+                                if (newItemProgress >= item.rechargeRateInSeconds) {
+                                    newAmount++
+                                    newItemProgress = 0L
+                                }
+                            }
+
+                            item.copy(
+                                currentAmount = newAmount,
+                                secondsRemaining = newSeconds,
+                                currentSecondsProgress = newItemProgress
+                            )
                         }
 
-                        // Push the updated section back into the state list to force a UI refresh
+                        // Commit the structural changes back to the state list
                         sectionsState[sectionIndex] = section.copy(
                             resourceItems = updatedResources,
                             otherItems = updatedOtherItems
