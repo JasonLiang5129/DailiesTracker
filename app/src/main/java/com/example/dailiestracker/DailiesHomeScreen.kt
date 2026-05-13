@@ -22,6 +22,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -34,6 +35,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.dailiestracker.ui.theme.DailiesTrackerTheme
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,6 +46,60 @@ class MainActivity : ComponentActivity() {
             val sectionsState = remember {
                 mutableStateListOf<TrackerSection>().apply {
                     addAll(MockData.sampleSections)
+                }
+            }
+
+            // --- THE REAL-TIME TIMER LOOP ---
+            LaunchedEffect(Unit) {
+                var tenMinuteTicker = 0
+
+                while (true) {
+                    delay(1000L) // Wait exactly 1 second
+                    tenMinuteTicker++
+
+                    // Flag to check if we hit a 10-minute mark (10 mins = 600 seconds)
+                    val shouldIncrementResource = tenMinuteTicker >= 600
+                    if (shouldIncrementResource) {
+                        tenMinuteTicker = 0 // Reset the 10-minute counter
+                    }
+
+                    // Loop through sections and items to update times and amounts
+                    sectionsState.forEachIndexed { sectionIndex, section ->
+
+                        // Helper function to process a list of items
+                        val updatedResources = section.resourceItems.map { item ->
+                            var newAmount = item.currentAmount
+                            var newSeconds = item.secondsRemaining
+
+                            // 1. Tick down the clock if not full
+                            if (newAmount < item.maxAmount && newSeconds > 0) {
+                                newSeconds--
+                            }
+
+                            // 2. Increment resource every 10 minutes if not full
+                            if (shouldIncrementResource && newAmount < item.maxAmount) {
+                                newAmount++
+                            }
+
+                            // Return a freshly updated copy of the item
+                            item.copy(currentAmount = newAmount, secondsRemaining = newSeconds)
+                        }
+
+                        // Apply the exact same logic to otherItems if they track time too
+                        val updatedOtherItems = section.otherItems.map { item ->
+                            var newAmount = item.currentAmount
+                            var newSeconds = item.secondsRemaining
+                            if (newAmount < item.maxAmount && newSeconds > 0) newSeconds--
+                            if (shouldIncrementResource && newAmount < item.maxAmount) newAmount++
+                            item.copy(currentAmount = newAmount, secondsRemaining = newSeconds)
+                        }
+
+                        // Push the updated section back into the state list to force a UI refresh
+                        sectionsState[sectionIndex] = section.copy(
+                            resourceItems = updatedResources,
+                            otherItems = updatedOtherItems
+                        )
+                    }
                 }
             }
 
@@ -93,7 +149,7 @@ fun TopBar(modifier: Modifier = Modifier) {
 fun MainTitleHeader(title: String) {
     Text(
         text = title,
-        style = MaterialTheme.typography.headlineMedium, // Larger than titleLarge
+        style = MaterialTheme.typography.headlineMedium,
         fontWeight = FontWeight.ExtraBold,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
@@ -102,7 +158,7 @@ fun MainTitleHeader(title: String) {
 
 @Composable
 fun DashboardScreen(
-    sections: List<TrackerSection>, // Accepts a dynamic list of sections!
+    sections: List<TrackerSection>,
     modifier: Modifier = Modifier
 ) {
     LazyVerticalGrid(
@@ -206,16 +262,18 @@ fun GridCardItem(
                 overflow = TextOverflow.Ellipsis
             )
 
+            // Displays the dynamic "66/200" text
             Text(
-                text = item.progress,
+                text = item.progressText,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
 
+            // Displays the dynamic countdown string ("17h 5m Left")
             Text(
-                text = item.timer,
+                text = item.timerText,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,
