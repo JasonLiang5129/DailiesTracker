@@ -21,6 +21,11 @@ data class TrackerItem(
             val minutes = (secondsRemaining % 3600) / 60
             return "${hours}h ${minutes}m Left"
         }
+
+    fun calculateInitialSeconds(): Long {
+        val itemsToFill = maxAmount - currentAmount
+        return if (itemsToFill <= 0) 0L else (itemsToFill * rechargeRateInSeconds)
+    }
 }
 
 

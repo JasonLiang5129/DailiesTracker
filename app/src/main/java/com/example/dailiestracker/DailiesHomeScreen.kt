@@ -1,5 +1,6 @@
 package com.example.dailiestracker
 
+import android.R.attr.text
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -8,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,14 +19,19 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -49,7 +56,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // --- THE REAL-TIME TIMER LOOP ---
             LaunchedEffect(Unit) {
                 while (true) {
                     delay(1000L) // Tick exactly every 1 second
@@ -58,19 +64,24 @@ class MainActivity : ComponentActivity() {
                         // Process resources with their own individual rates
                         val updatedResources = section.resourceItems.map { item ->
                             var newAmount = item.currentAmount
-                            var newSeconds = (item.maxAmount - item.currentAmount) * item.rechargeRateInSeconds
+                            var newSeconds = item.secondsRemaining // Use the existing value
                             var newItemProgress = item.currentSecondsProgress
 
-                            // Only tick if the item isn't already maxed out
                             if (newAmount < item.maxAmount) {
-                                if (newSeconds > 0) newSeconds--
-                                newItemProgress++ // Increment this item's specific internal clock
+                                // Simply subtract 1 second if there is time left
+                                if (newSeconds > 0) {
+                                    newSeconds--
+                                }
+                                newItemProgress++
 
-                                // Check if this item has reached its own custom resource interval
+                                // Handle Resource Gain
                                 if (newItemProgress >= item.rechargeRateInSeconds) {
                                     newAmount++
-                                    newItemProgress = 0L // Reset this item's specific counter
+                                    newSeconds = (item.maxAmount - newAmount) * item.rechargeRateInSeconds
+                                    newItemProgress = 0L
                                 }
+                            } else {
+                                newSeconds = 0L // Ensure it says 0 when full
                             }
 
                             item.copy(
@@ -103,7 +114,6 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // Commit the structural changes back to the state list
                         sectionsState[sectionIndex] = section.copy(
                             resourceItems = updatedResources,
                             otherItems = updatedOtherItems
@@ -114,7 +124,47 @@ class MainActivity : ComponentActivity() {
 
             DailiesTrackerTheme {
                 MainLayoutScreen(
-                    sections = sectionsState
+                    sections = sectionsState,
+                    onUpdateItem = { clickedItem, newValue ->
+                        // Find which section contains the item by checking IDs
+                        val index = sectionsState.indexOfFirst { section ->
+                            section.resourceItems.any { it.id == clickedItem.id } || section.otherItems.any { it.id == clickedItem.id }
+                        }
+
+                        if (index != -1) {
+                            val section = sectionsState[index]
+
+                            // Create the updated copies using ID matching
+                            val updatedResources = section.resourceItems.map {
+                                if (it.id == clickedItem.id) {
+                                    // reset the local progress ticker
+                                    it.copy(
+                                        currentAmount = newValue,
+                                        currentSecondsProgress = 0L,
+                                        secondsRemaining = (clickedItem.maxAmount - newValue) * clickedItem.rechargeRateInSeconds)
+                                } else {
+                                    it
+                                }
+                            }
+                            val updatedOthers = section.otherItems.map {
+                                if (it.id == clickedItem.id) {
+                                    it.copy(
+                                        currentAmount = newValue,
+                                        currentSecondsProgress = 0L,
+                                        secondsRemaining = (clickedItem.maxAmount - newValue) * clickedItem.rechargeRateInSeconds
+                                    )
+                                } else {
+                                    it
+                                }
+                            }
+
+                            // Replace the section in the state list
+                            sectionsState[index] = section.copy(
+                                resourceItems = updatedResources,
+                                otherItems = updatedOthers
+                            )
+                        }
+                    }
                 )
             }
         }
@@ -124,6 +174,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainLayoutScreen(
     sections: List<TrackerSection>,
+    onUpdateItem: (TrackerItem, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -133,7 +184,8 @@ fun MainLayoutScreen(
     ) {
         TopBar()
         DashboardScreen(
-            sections = sections
+            sections = sections,
+            onUpdateItem = onUpdateItem
         )
     }
 }
@@ -168,8 +220,74 @@ fun MainTitleHeader(title: String) {
 @Composable
 fun DashboardScreen(
     sections: List<TrackerSection>,
+    onUpdateItem: (TrackerItem, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var selectedItem by remember {
+        mutableStateOf<TrackerItem?>(null)
+    }
+
+    var resetValue by remember { mutableStateOf("") }
+
+    if (selectedItem != null) {
+        AlertDialog(
+            onDismissRequest = {
+                selectedItem = null
+            },
+            title = { Text(text = "Reset ${selectedItem?.title}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Enter a new value (0 - ${selectedItem?.maxAmount}):")
+
+                    androidx.compose.material3.TextField(
+                        value = resetValue,
+                        onValueChange = { newValue ->
+                            // Only allow numbers to be typed
+                            if (newValue.all { it.isDigit() }) {
+                                resetValue = newValue
+                            }
+                        },
+                        placeholder = { Text("e.g. 50") },
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Quick Reset Button
+                    androidx.compose.material3.TextButton(onClick = {
+                        onUpdateItem(selectedItem!!, 0)
+                        selectedItem = null
+                        resetValue = ""
+                    }) {
+                        Text("Reset to 0")
+                    }
+
+                    // Save Button
+                    Button(onClick = {
+                        val newValue = resetValue.toIntOrNull()
+                        if (newValue != null && selectedItem != null && newValue in 0..selectedItem!!.maxAmount) {
+                            onUpdateItem(selectedItem!!, newValue)
+                            selectedItem = null
+                            resetValue = ""
+                        }
+                    }) {
+                        Text("Save")
+                    }
+                }
+            },
+            dismissButton = {
+                Button(onClick = { selectedItem = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
         modifier = modifier
@@ -180,7 +298,7 @@ fun DashboardScreen(
     ) {
 
         sections.forEach { section ->
-            // The Main Title Header (e.g., "Title 1", "Title 2")
+            // Main Title Header
             item(
                 key = "title_${section.id}",
                 span = { GridItemSpan(maxLineSpan) }
@@ -204,7 +322,7 @@ fun DashboardScreen(
                 GridCardItem(
                     item = item,
                     onItemClick = {
-                        // TODO: Handle clicking an item in this specific section
+                        selectedItem = item
                     }
                 )
             }
@@ -225,7 +343,7 @@ fun DashboardScreen(
                 GridCardItem(
                     item = item,
                     onItemClick = {
-                        // TODO: Handle clicking an item in this specific section
+                        selectedItem = item
                     }
                 )
             }
@@ -242,6 +360,7 @@ fun CategoryHeader(title: String) {
         modifier = Modifier.padding(vertical = 8.dp)
     )
 }
+
 
 @Composable
 fun GridCardItem(
@@ -271,7 +390,6 @@ fun GridCardItem(
                 overflow = TextOverflow.Ellipsis
             )
 
-            // Displays the dynamic "66/200" text
             Text(
                 text = item.progressText,
                 style = MaterialTheme.typography.bodySmall,
@@ -280,7 +398,6 @@ fun GridCardItem(
                 overflow = TextOverflow.Ellipsis
             )
 
-            // Displays the dynamic countdown string ("17h 5m Left")
             Text(
                 text = item.timerText,
                 style = MaterialTheme.typography.labelSmall,
@@ -303,6 +420,9 @@ fun DailiesTrackerPreview() {
     DailiesTrackerTheme {
         MainLayoutScreen(
             sections = MockData.sampleSections,
+            onUpdateItem = { _, _ ->
+                // Do nothing in preview mode
+            }
         )
     }
 }

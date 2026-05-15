@@ -16,13 +16,13 @@ object MockData {
             2400,
             180L
         ),
-        TrackerItem(
-            3,
-            "Currency",
-            200,
-            200,
-            120L
-        )
+//        TrackerItem(
+//            3,
+//            "Currency",
+//            200,
+//            200,
+//            120L
+//        )
     )
 
     val sampleOtherItems = listOf(
@@ -31,14 +31,14 @@ object MockData {
             "Investigation",
             1,
             1,
-            60L
+            86400L
         ),
         TrackerItem(
             5,
             "Check-In",
             0,
             1,
-            120L
+            86400L
         ),
     )
 
@@ -49,11 +49,11 @@ object MockData {
             resourceItems = sampleResourceItems,
             otherItems = sampleOtherItems
         ),
-        TrackerSection(
-            id = "sec_2",
-            title = "Title 2",
-            resourceItems = sampleResourceItems, // Reusing mock items for testing
-            otherItems = sampleOtherItems
-        )
+//        TrackerSection(
+//            id = "sec_2",
+//            title = "Title 2",
+//            resourceItems = sampleResourceItems, // Reusing mock items for testing
+//            otherItems = sampleOtherItems
+//        )
     )
 }
