@@ -1,6 +1,5 @@
 package com.example.dailiestracker
 
-import android.R.attr.text
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -41,22 +40,50 @@ import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
 import com.example.dailiestracker.ui.theme.DailiesTrackerTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val storageManager = DataStorageManager(applicationContext)
         setContent {
-            // Separated state lists for each category
-            val sectionsState = remember {
-                mutableStateListOf<TrackerSection>().apply {
-                    addAll(MockData.sampleSections)
+            // Start with an empty list to avoid duplicates during initialization
+            val sectionsState = remember { mutableStateListOf<TrackerSection>() }
+
+            LaunchedEffect(Unit) {
+                val (savedSections, lastSavedTime) = storageManager.loadSections()
+                
+                // Clear any existing data before adding new data
+                sectionsState.clear()
+
+                if (savedSections != null) {
+                    val elapsedSeconds = (System.currentTimeMillis() - lastSavedTime) / 1000L
+
+                    val caughtUpSections = savedSections.map { section ->
+                        val updatedResources = section.resourceItems.map { item ->
+                            var newAmount = item.currentAmount
+                            if (newAmount < item.maxAmount && elapsedSeconds > 0) {
+                                val totalProgress = item.currentSecondsProgress + elapsedSeconds
+                                val gainedResources = totalProgress / item.rechargeRateInSeconds
+                                newAmount = (newAmount + gainedResources).coerceAtMost(item.maxAmount.toLong()).toInt()
+                            }
+                            item.copy(currentAmount = newAmount)
+                        }
+                        section.copy(resourceItems = updatedResources)
+                    }
+                    sectionsState.addAll(caughtUpSections)
+                } else {
+                    sectionsState.addAll(MockData.sampleSections)
                 }
             }
 
             LaunchedEffect(Unit) {
+                var saveCounter = 0
                 while (true) {
                     delay(1000L) // Tick exactly every 1 second
                     sectionsState.forEachIndexed { sectionIndex, section ->
@@ -64,7 +91,7 @@ class MainActivity : ComponentActivity() {
                         // Process resources with their own individual rates
                         val updatedResources = section.resourceItems.map { item ->
                             var newAmount = item.currentAmount
-                            var newSeconds = item.secondsRemaining // Use the existing value
+                            var newSeconds = item.secondsRemaining
                             var newItemProgress = item.currentSecondsProgress
 
                             if (newAmount < item.maxAmount) {
@@ -119,6 +146,12 @@ class MainActivity : ComponentActivity() {
                             otherItems = updatedOtherItems
                         )
                     }
+
+                    saveCounter++
+                    if (saveCounter >= 10) {
+                        storageManager.saveSections(sectionsState)
+                        saveCounter = 0
+                    }
                 }
             }
 
@@ -126,7 +159,6 @@ class MainActivity : ComponentActivity() {
                 MainLayoutScreen(
                     sections = sectionsState,
                     onUpdateItem = { clickedItem, newValue ->
-                        // Find which section contains the item by checking IDs
                         val index = sectionsState.indexOfFirst { section ->
                             section.resourceItems.any { it.id == clickedItem.id } || section.otherItems.any { it.id == clickedItem.id }
                         }
@@ -134,10 +166,8 @@ class MainActivity : ComponentActivity() {
                         if (index != -1) {
                             val section = sectionsState[index]
 
-                            // Create the updated copies using ID matching
                             val updatedResources = section.resourceItems.map {
                                 if (it.id == clickedItem.id) {
-                                    // reset the local progress ticker
                                     it.copy(
                                         currentAmount = newValue,
                                         currentSecondsProgress = 0L,
@@ -158,11 +188,14 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
-                            // Replace the section in the state list
                             sectionsState[index] = section.copy(
                                 resourceItems = updatedResources,
                                 otherItems = updatedOthers
                             )
+                        }
+
+                        lifecycleScope.launch {
+                            storageManager.saveSections(sectionsState)
                         }
                     }
                 )
@@ -242,7 +275,6 @@ fun DashboardScreen(
                     androidx.compose.material3.TextField(
                         value = resetValue,
                         onValueChange = { newValue ->
-                            // Only allow numbers to be typed
                             if (newValue.all { it.isDigit() }) {
                                 resetValue = newValue
                             }
@@ -258,7 +290,6 @@ fun DashboardScreen(
             },
             confirmButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Quick Reset Button
                     androidx.compose.material3.TextButton(onClick = {
                         onUpdateItem(selectedItem!!, 0)
                         selectedItem = null
@@ -267,7 +298,6 @@ fun DashboardScreen(
                         Text("Reset to 0")
                     }
 
-                    // Save Button
                     Button(onClick = {
                         val newValue = resetValue.toIntOrNull()
                         if (newValue != null && selectedItem != null && newValue in 0..selectedItem!!.maxAmount) {
@@ -296,9 +326,7 @@ fun DashboardScreen(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-
         sections.forEach { section ->
-            // Main Title Header
             item(
                 key = "title_${section.id}",
                 span = { GridItemSpan(maxLineSpan) }
@@ -306,7 +334,6 @@ fun DashboardScreen(
                 MainTitleHeader(title = section.title)
             }
 
-            // Resources Sub-Header
             item(
                 key = "res_header_${section.id}",
                 span = { GridItemSpan(maxLineSpan) }
@@ -314,10 +341,9 @@ fun DashboardScreen(
                 CategoryHeader(title = "resources")
             }
 
-            // Grid items for this section's resources
             items(
                 items = section.resourceItems,
-                key = { item -> "res_${section.id}_${item.id}" } // Keeps keys unique globally
+                key = { item -> "res_${section.id}_${item.id}" }
             ) { item ->
                 GridCardItem(
                     item = item,
@@ -327,7 +353,6 @@ fun DashboardScreen(
                 )
             }
 
-            // Other Sub-Header
             item(
                 key = "oth_header_${section.id}",
                 span = { GridItemSpan(maxLineSpan) }
@@ -335,7 +360,6 @@ fun DashboardScreen(
                 CategoryHeader(title = "other")
             }
 
-            // Grid items for this section's other items
             items(
                 items = section.otherItems,
                 key = { item -> "oth_${section.id}_${item.id}" }
@@ -360,7 +384,6 @@ fun CategoryHeader(title: String) {
         modifier = Modifier.padding(vertical = 8.dp)
     )
 }
-
 
 @Composable
 fun GridCardItem(
@@ -420,9 +443,7 @@ fun DailiesTrackerPreview() {
     DailiesTrackerTheme {
         MainLayoutScreen(
             sections = MockData.sampleSections,
-            onUpdateItem = { _, _ ->
-                // Do nothing in preview mode
-            }
+            onUpdateItem = { _, _ -> }
         )
     }
 }

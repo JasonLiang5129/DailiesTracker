@@ -4,14 +4,14 @@ object MockData {
     val sampleResourceItems = listOf(
         TrackerItem(
             1,
-            "Resin",
+            "A",
             0,
             200,
             5L
         ),
         TrackerItem(
             2,
-            "Realm Currency",
+            "B",
             100,
             2400,
             180L
@@ -28,14 +28,14 @@ object MockData {
     val sampleOtherItems = listOf(
         TrackerItem(
             4,
-            "Investigation",
+            "C",
             1,
             1,
             86400L
         ),
         TrackerItem(
             5,
-            "Check-In",
+            "D",
             0,
             1,
             86400L
